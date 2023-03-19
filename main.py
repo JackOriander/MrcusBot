@@ -1,80 +1,86 @@
 import requests
-import random
 import os
-from newsapi import NewsApiClient
+import random
 from PIL import Image, ImageDraw, ImageFont
 from instabot import Bot
-import openai
+from datetime import datetime, timedelta
+import openai_secret_manager
 
-# Set up your NewsAPI API key and OpenAI API key
-newsapi = NewsApiClient(api_key=os.getenv("dd27e596a31646cf8045079ba26bafae"))
-openai.api_key = os.getenv("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")
+# Get API credentials
+secrets = openai_secret_manager.get_secret("google_news")
 
-# Set up your Instagram bot credentials
+# Google News API endpoint
+url = "https://newsapi.org/v2/top-headlines"
+
+# Set country for news
+country = "in"
+
+# Set the font, font size, and text color for the headline and additional text
+font_path = "/usr/share/fonts/google-crosextra-caladea/Caladea-Bold.ttf"
+headline_font = ImageFont.truetype(font_path, 50)
+text_font = ImageFont.truetype(font_path, 30)
+text_color = (255, 255, 255)
+
+# Set the directory for saving the image file
+image_dir = "images"
+
+# Set up the Instagram bot
 bot = Bot()
-bot.login(username=os.getenv("daily_headlines_of_jack"), password=os.getenv("713103aritra"))
+bot.login(username="daily_headlines_of_jack", password="713103aritra")
 
-# Define a function to generate a solid color image
-def generate_image(color):
-    image = Image.new('RGB', (1080, 1080), color=color)
-    return image
+# Get the current time
+now = datetime.now()
 
-# Define a function to generate text with the OpenAI API
-def generate_text(prompt):
-    response = openai.Completion.create(
-        engine="text-davinci-002",
-        prompt=prompt,
-        max_tokens=1024,
-        n=1,
-        stop=None,
-        temperature=0.5
-    )
-    return response.choices[0].text.strip()
+# Set the time to check for news
+news_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
 
-# Define a function to post an image with a caption on Instagram
-def post_to_instagram(image_path, caption):
-    bot.upload_photo(image_path, caption=caption)
-
-# Set up the initial background color
-background_color = (255, 255, 255)
-
+# Loop indefinitely
 while True:
-    # Get the latest news headlines for West Bengal
-    news = newsapi.get_top_headlines(q="West Bengal", language="en", country="in")
-
-    # Check if there are any articles
-    if len(news["articles"]) == 0:
-        print("No news found")
-        continue
-
-    # Choose a random article and extract the headline
-    article = random.choice(news["articles"])
-    headline = article["title"]
-
-    # Generate additional text using OpenAI
-    additional_text = generate_text(f"Tell me more about {headline}")
-
-    # Combine the headline and additional text into a caption
-    caption = f"{headline}\n\n{additional_text}"
-
-    # Generate a random background color
-    background_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
-
-    # Generate the image
-    image = generate_image(background_color)
-    draw = ImageDraw.Draw(image)
-    font = ImageFont.truetype("arial.ttf", size=72)
-    w, h = draw.textsize(headline, font=font)
-    x = (1080 - w) / 2
-    y = (1080 - h) / 2
-    draw.text((x, y), headline, fill=(255, 255, 255), font=font)
-
-    # Save the image to a file
-    image_path = "news.png"
-    image.save(image_path)
-
-    # Post the image to Instagram
-    post_to_instagram(image_path, caption)
-
-    # Wait for 24 hours before posting the next image
-    time.sleep(24 * 60 * 60)  # in seconds
+    # Check if it's time to get news
+    if now >= news_time:
+        # Get top headlines from Google News API
+        params = {
+            "apiKey": secrets["dd27e596a31646cf8045079ba26bafae"],
+            "country": country,
+            "pageSize": 1
+        }
+        response = requests.get(url, params=params)
+        data = response.json()
+        
+        # Check if news articles were found
+        if len(data["articles"]) > 0:
+            # Choose a random background color for the image
+            bg_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+            
+            # Get the first headline and article text
+            headline = data['articles'][0]['title']
+            article_text = data['articles'][0]['description']
+            
+            # Create a new image
+            img = Image.new("RGB", (1080, 1080), color=bg_color)
+            draw = ImageDraw.Draw(img)
+            
+            # Add the headline and additional text to the image
+            draw.text((100, 200), headline, fill=text_color, font=headline_font)
+            draw.text((100, 400), article_text, fill=text_color, font=text_font, spacing=10)
+            
+            # Save the image to a file
+            if not os.path.exists(image_dir):
+                os.makedirs(image_dir)
+            filename = os.path.join(image_dir, "news_image.jpg")
+            img.save(filename)
+            
+            # Post the image and caption on Instagram
+            caption = f"{headline}\n\n{article_text}"
+            bot.upload_photo(filename, caption=caption)
+            
+            print("News posted on Instagram.")
+        else:
+            print("No news found.")
+        
+        # Set the time to check for news tomorrow
+        news_time += timedelta(days=1)
+    
+    # Sleep for 1 hour before checking the time again
+    time.sleep(3600)
+    now = datetime.now()
