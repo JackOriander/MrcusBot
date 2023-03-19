@@ -1,76 +1,80 @@
-import openai
 import requests
+import random
+import os
+from newsapi import NewsApiClient
 from PIL import Image, ImageDraw, ImageFont
 from instabot import Bot
-import os
-import random
+import openai
 
-# OpenAI credentials
-openai.api_key = "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"
+# Set up your NewsAPI API key and OpenAI API key
+newsapi = NewsApiClient(api_key=os.getenv("dd27e596a31646cf8045079ba26bafae"))
+openai.api_key = os.getenv("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")
 
-# Instagram credentials
-username = "daily_headlines_of_jack"
-password = "713103aritra"
+# Set up your Instagram bot credentials
+bot = Bot()
+bot.login(username=os.getenv("daily_headlines_of_jack"), password=os.getenv("713103aritra"))
 
-# News API credentials
-news_api_key = "dd27e596a31646cf8045079ba26bafae"
+# Define a function to generate a solid color image
+def generate_image(color):
+    image = Image.new('RGB', (1080, 1080), color=color)
+    return image
 
-# Previous headline
-previous_headline = ""
+# Define a function to generate text with the OpenAI API
+def generate_text(prompt):
+    response = openai.Completion.create(
+        engine="text-davinci-002",
+        prompt=prompt,
+        max_tokens=1024,
+        n=1,
+        stop=None,
+        temperature=0.5
+    )
+    return response.choices[0].text.strip()
+
+# Define a function to post an image with a caption on Instagram
+def post_to_instagram(image_path, caption):
+    bot.upload_photo(image_path, caption=caption)
+
+# Set up the initial background color
+background_color = (255, 255, 255)
 
 while True:
-    # Fetch the latest news headline from the News API
-    response = requests.get(f'https://newsapi.org/v2/top-headlines?country=in&category=general&apiKey={news_api_key}&q=West%20Bengal')
-    data = response.json()
-    headline = data['articles'][0]['title']
+    # Get the latest news headlines for West Bengal
+    news = newsapi.get_top_headlines(q="West Bengal", language="en", country="in")
 
-    # Check if the news headline is different from the previous one
-    if headline != previous_headline:
-        # Improve the headline using OpenAI's GPT-3
-        prompt = f"Improve this headline: {headline}"
-        model = "text-davinci-002"
-        temperature = 0.5
-        max_tokens = 60
-        output = openai.Completion.create(
-            engine=model,
-            prompt=prompt,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            n=1,
-            stop=None,
-            frequency_penalty=0,
-            presence_penalty=0
-        )
-        improved_headline = output.choices[0].text.strip()
+    # Check if there are any articles
+    if len(news["articles"]) == 0:
+        print("No news found")
+        continue
 
-        # Add some text to provide context
-        context = "Here's the latest news from West Bengal."
-        text = improved_headline + "\n\n" + context
+    # Choose a random article and extract the headline
+    article = random.choice(news["articles"])
+    headline = article["title"]
 
-        # Choose a random background color
-        color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+    # Generate additional text using OpenAI
+    additional_text = generate_text(f"Tell me more about {headline}")
 
-        # Create a new image with the text and the background color
-        img = Image.new('RGB', (1080, 1080), color=color)
-        draw = ImageDraw.Draw(img)
-        font = ImageFont.truetype('arial.ttf', size=50)
-        w, h = draw.textsize(text, font=font)
-        draw.text(((1080-w)/2, (1080-h)/2), text, font=font, fill='white')
+    # Combine the headline and additional text into a caption
+    caption = f"{headline}\n\n{additional_text}"
 
-        # Save the image
-        img.save('news.png')
+    # Generate a random background color
+    background_color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
 
-        # Post the image on Instagram
-        bot = Bot()
-        bot.login(username=username, password=password)
-        bot.upload_photo('news.png', caption=text)
+    # Generate the image
+    image = generate_image(background_color)
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.truetype("arial.ttf", size=72)
+    w, h = draw.textsize(headline, font=font)
+    x = (1080 - w) / 2
+    y = (1080 - h) / 2
+    draw.text((x, y), headline, fill=(255, 255, 255), font=font)
 
-        # Delete the image from the local directory
-        os.remove('news.png')
+    # Save the image to a file
+    image_path = "news.png"
+    image.save(image_path)
 
-        # Update the previous headline
-        previous_headline = headline
+    # Post the image to Instagram
+    post_to_instagram(image_path, caption)
 
-    # Wait for 10 minutes before checking for a new news headline
-    time.sleep(600)
-
+    # Wait for 24 hours before posting the next image
+    time.sleep(24 * 60 * 60)  # in seconds
